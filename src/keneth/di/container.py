@@ -1,7 +1,7 @@
 from typing import Dict, List, Type
 from keneth.di_contracts import ContainerInterface, ServiceInterface, ContainerContextInterface
 
-from src.keneth.di.container_context import ContainerContext
+from .container_context import ContainerContext
 
 type ServiceType = Type[ServiceInterface]
 
