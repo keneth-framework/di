@@ -1,54 +1,62 @@
-from typing import Dict, List, Type
-from keneth.di_contracts import ContainerInterface, ServiceInterface, ContainerContextInterface
+from keneth.di_contracts import ContainerInterface, ServiceInterface
 
 from .container_context import ContainerContext
 
-type ServiceType = Type[ServiceInterface]
+type ServiceType = type[ServiceInterface]
 
 
 class Container(ContainerInterface):
-    def __init__(self):
-        super().__init__()
-        self.instances: Dict[ServiceType, ServiceInterface] = {}
+    """Concrete implementation of the dependency injection container."""
 
-    def call(self, func: callable, targets: List[ServiceType] = None) -> any:
+    def __init__(self) -> None:
+        """Initialize the container with empty contexts and instances."""
+        super().__init__()
+        self.__instances: dict[ServiceType, ServiceInterface] = {}
+        self.__context = ContainerContext()
+        self.__permanent_context = ContainerContext()
+        self.__permanent_context.add_instance(self)
+
+    def get_context(self) -> ContainerContext:
+        return self.__context
+
+    def get_permanent_context(self) -> ContainerContext:
+        return self.__permanent_context
+
+    def clear_context(self) -> None:
+        self.__context = ContainerContext()
+
+    def call(self, func: callable) -> any:
         args = []
         for name, param_type in func.__annotations__.items():
             if isinstance(param_type, type) and issubclass(
                 param_type, ServiceInterface
             ):
-                args.append(self.provide(param_type, targets))
+                args.append(self.provide(param_type))
             else:
-                args.append(self.bind_param(name, param_type, targets))
+                args.append(self.bind_param(name, param_type))
         return func(*args)
 
-    def provide(
-        self,
-        service_type: ServiceType,
-        context: ContainerContextInterface = None,
-    ) -> ServiceInterface:
-        if service_type in self.instances:
-            return self.instances[service_type]
-        context = context or ContainerContext()
-        if service_type in context.get_targets():
-            raise RuntimeError(
+    def provide(self, service_type: ServiceType) -> ServiceInterface:
+        if service_type in self.__instances:
+            return self.__instances[service_type]
+        if service_type in self.__context.get_targets():
+            message = (
                 f"Circular dependency detected for service: {service_type.__name__}"
             )
-        context.add_target(service_type)
+            raise RuntimeError(message)
+        self.__context.add_target(service_type)
         instance = service_type.__new__(service_type)
-        context.add_binding('self', instance)
-        self.call(instance.__init__, context)
-        self.instances[service_type] = instance
+        self.__context.add_binding("self", instance)
+        self.call(instance.__init__, self.__context)
+        self.__instances[service_type] = instance
         return instance
 
-    def bind_param(
-        self, name: str, type: Type, targets: List[ServiceType] = None
-    ) -> any:
-        if name in self.bindings:
-            return self.bindings[name]
-        for target in reversed(targets or []):
-            if hasattr(target, "bind_param") and callable(
-                getattr(target, "bind_param")
-            ):
-                return target.bind_param(name, type, targets)
-        raise RuntimeError(f"No binding found for parameter: {name}")
+    def bind_param(self, name: str, param_type: type) -> object | None:
+        val = self.get_instance_from_type(param_type)
+        if val is not None:
+            return val
+        val = self.get_binding(name)
+        if val is not None:
+            return val
+        message = f"No binding found for parameter: {name}"
+        raise RuntimeError(message)
